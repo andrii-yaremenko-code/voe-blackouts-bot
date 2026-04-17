@@ -98,7 +98,7 @@ def webhook():
 
     asyncio.run_coroutine_threadsafe(
         application.process_update(update),
-        loop
+        loop  # ← ВАЖНО: используем глобальный loop
     )
 
     return "ok"
