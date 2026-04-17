@@ -1,10 +1,14 @@
+import asyncio
 import time
-import threading
 from datetime import datetime, timedelta
 
 from flask import Flask, request, abort
-from telegram import Bot, Update
-from telegram.ext import Dispatcher, CommandHandler
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
 
 from config import *
 from voe import get_blackouts
@@ -14,12 +18,8 @@ from voe import get_blackouts
 # =====================
 app = Flask(__name__)
 
-bot = Bot(token=BOT_TOKEN)
-dispatcher = Dispatcher(bot, None, use_context=True)
+application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# =====================
-# STATE
-# =====================
 last_state = None
 last_send_time = None
 user_last_call = {}
@@ -29,10 +29,10 @@ USER_RATE_LIMIT = 5
 
 
 # =====================
-# SECURITY HELPERS
+# HELPERS
 # =====================
-def is_allowed_chat(update):
-    return str(update.effective_chat.id) == str(CHAT_ID)
+def is_allowed(chat_id):
+    return str(chat_id) == str(CHAT_ID)
 
 
 def rate_limit_ok(user_id):
@@ -46,42 +46,38 @@ def rate_limit_ok(user_id):
     return True
 
 
-def send(text):
-    bot.send_message(chat_id=CHAT_ID, text=text)
-
-
 # =====================
-# COMMANDS
+# COMMANDS (ASYNC)
 # =====================
-def start(update, context):
-    if not is_allowed_chat(update):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_chat.id):
         return
-    update.message.reply_text("🤖 Bot is running (secure webhook)")
+    await update.message.reply_text("🤖 Async bot running")
 
 
-def status(update, context):
-    if not is_allowed_chat(update):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_chat.id):
         return
     if not rate_limit_ok(update.effective_user.id):
         return
 
     result = get_blackouts(EIC_CODE)
-    update.message.reply_text(str(result))
+    await update.message.reply_text(str(result))
 
 
-def today(update, context):
-    if not is_allowed_chat(update):
+async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_chat.id):
         return
     if not rate_limit_ok(update.effective_user.id):
         return
 
     result = get_blackouts(EIC_CODE)
-    update.message.reply_text("📅 Today:\n" + str(result))
+    await update.message.reply_text("📅 Today:\n" + str(result))
 
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("status", status))
-dispatcher.add_handler(CommandHandler("today", today))
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("status", status))
+application.add_handler(CommandHandler("today", today))
 
 
 # =====================
@@ -95,16 +91,17 @@ def webhook():
         print("❌ Unauthorized request")
         abort(403)
 
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
+    update = Update.de_json(request.get_json(force=True), application.bot)
+
+    asyncio.run(application.process_update(update))
 
     return "ok"
 
 
 # =====================
-# MONITOR LOOP
+# MONITOR (ASYNC LOOP)
 # =====================
-def monitor():
+async def monitor():
     global last_state, last_send_time
 
     while True:
@@ -121,44 +118,56 @@ def monitor():
                 )
 
                 if changed and can_send:
-                    send("⚠️ Power alert:\n" + result)
+                    await application.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text="⚠️ Power alert:\n" + result
+                    )
                     last_state = result
                     last_send_time = now
 
         except Exception as e:
             print("monitor error:", e)
 
-        time.sleep(CHECK_INTERVAL)
+        await asyncio.sleep(CHECK_INTERVAL)
 
 
 # =====================
-# HEALTH CHECK
+# HEALTH
 # =====================
 @app.route("/")
 def home():
-    return "OK - bot running"
+    return "OK async bot running"
 
 
 # =====================
-# START WEBHOOK
+# STARTUP
 # =====================
-def setup_webhook():
+async def setup():
     webhook_url = f"{BASE_URL}/{WEBHOOK_SECRET_PATH}"
 
-    bot.set_webhook(
+    await application.bot.set_webhook(
         url=webhook_url,
         secret_token=WEBHOOK_SECRET_TOKEN
     )
 
     print("Webhook set:", webhook_url)
 
+    asyncio.create_task(monitor())
+
+
+def start_async():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(setup())
+    loop.run_forever()
+
 
 # =====================
-# START
+# MAIN
 # =====================
 if __name__ == "__main__":
-    threading.Thread(target=monitor, daemon=True).start()
+    import threading
 
-    setup_webhook()
+    threading.Thread(target=start_async, daemon=True).start()
 
     app.run(host="0.0.0.0", port=10000)
