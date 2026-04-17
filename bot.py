@@ -7,11 +7,10 @@ from telegram import Bot, Update
 from telegram.ext import Dispatcher, CommandHandler
 
 from config import *
-
 from voe import get_blackouts
 
 # =====================
-# app
+# APP
 # =====================
 app = Flask(__name__)
 
@@ -19,19 +18,18 @@ bot = Bot(token=BOT_TOKEN)
 dispatcher = Dispatcher(bot, None, use_context=True)
 
 # =====================
-# security state
+# STATE
 # =====================
 last_state = None
 last_send_time = None
-
 user_last_call = {}
 
-COOLDOWN = 1800  # anti-spam global
-USER_RATE_LIMIT = 5  # seconds
+COOLDOWN = 1800
+USER_RATE_LIMIT = 5
 
 
 # =====================
-# helpers
+# SECURITY HELPERS
 # =====================
 def is_allowed_chat(update):
     return str(update.effective_chat.id) == str(CHAT_ID)
@@ -58,8 +56,7 @@ def send(text):
 def start(update, context):
     if not is_allowed_chat(update):
         return
-
-    update.message.reply_text("🤖 Secure bot active")
+    update.message.reply_text("🤖 Bot is running (secure webhook)")
 
 
 def status(update, context):
@@ -88,23 +85,24 @@ dispatcher.add_handler(CommandHandler("today", today))
 
 
 # =====================
-# WEBHOOK SECURITY
+# WEBHOOK
 # =====================
 @app.route(f"/{WEBHOOK_SECRET_PATH}", methods=["POST"])
 def webhook():
-    # Telegram secret header check
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+
     if secret != WEBHOOK_SECRET_TOKEN:
-        print("❌ Unauthorized webhook attempt")
+        print("❌ Unauthorized request")
         abort(403)
 
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
+
     return "ok"
 
 
 # =====================
-# MONITORING LOOP
+# MONITOR LOOP
 # =====================
 def monitor():
     global last_state, last_send_time
@@ -123,7 +121,7 @@ def monitor():
                 )
 
                 if changed and can_send:
-                    send("⚠️ Power alerts:\n" + result)
+                    send("⚠️ Power alert:\n" + result)
                     last_state = result
                     last_send_time = now
 
@@ -138,24 +136,29 @@ def monitor():
 # =====================
 @app.route("/")
 def home():
-    return "OK - secure bot running"
+    return "OK - bot running"
 
 
 # =====================
-# STARTUP
+# START WEBHOOK
 # =====================
-def run_bot():
+def setup_webhook():
+    webhook_url = f"{BASE_URL}/{WEBHOOK_SECRET_PATH}"
+
     bot.set_webhook(
-        url=f"https://YOUR-RENDER-URL.onrender.com/{WEBHOOK_SECRET_PATH}",
+        url=webhook_url,
         secret_token=WEBHOOK_SECRET_TOKEN
     )
 
-    print("Webhook set")
+    print("Webhook set:", webhook_url)
 
 
-threading.Thread(target=monitor, daemon=True).start()
-threading.Thread(target=run_bot, daemon=True).start()
-
-
+# =====================
+# START
+# =====================
 if __name__ == "__main__":
+    threading.Thread(target=monitor, daemon=True).start()
+
+    setup_webhook()
+
     app.run(host="0.0.0.0", port=10000)
