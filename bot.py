@@ -1,4 +1,7 @@
 import asyncio
+
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 import time
 from datetime import datetime, timedelta
 
@@ -93,8 +96,10 @@ def webhook():
 
     update = Update.de_json(request.get_json(force=True), application.bot)
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(application.process_update(update))
+    asyncio.run_coroutine_threadsafe(
+        application.process_update(update),
+        loop
+    )
 
     return "ok"
 
@@ -160,8 +165,6 @@ async def setup():
 
 
 def start_async():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     loop.run_until_complete(setup())
     loop.run_forever()
 
