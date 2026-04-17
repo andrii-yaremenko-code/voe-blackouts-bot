@@ -93,7 +93,8 @@ def webhook():
 
     update = Update.de_json(request.get_json(force=True), application.bot)
 
-    asyncio.run(application.process_update(update))
+    loop = asyncio.get_event_loop()
+    loop.create_task(application.process_update(update))
 
     return "ok"
 
@@ -144,6 +145,9 @@ def home():
 # =====================
 async def setup():
     webhook_url = f"{BASE_URL}/{WEBHOOK_SECRET_PATH}"
+
+    # 🔥 ВАЖНО
+    await application.initialize()
 
     await application.bot.set_webhook(
         url=webhook_url,
