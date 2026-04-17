@@ -14,6 +14,7 @@ Telegram bot for monitoring electricity outages (VOE Ukraine).
 
 ```bash
 pip install -r requirements.txt
+```
 
 ## 📲 Как это выглядит
 
